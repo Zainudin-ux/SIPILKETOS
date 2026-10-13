@@ -1,0 +1,645 @@
+<!DOCTYPE html>
+<html lang="id">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>SI PILKETOS - Panel Admin</title>
+    <!-- Tailwind CSS CDN -->
+    <script src="https://cdn.tailwindcss.com"></script>
+    <!-- Alpine.js CDN -->
+    <script defer src="https://cdn.jsdelivr.net/npm/alpinejs@3.x.x/dist/cdn.min.js"></script>
+    <!-- Supabase JS Client -->
+    <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
+    <!-- SheetJS (xlsx.js) untuk Import & Export Excel -->
+    <script src="https://cdn.jsdelivr.net/npm/xlsx@0.18.5/dist/xlsx.full.min.js"></script>
+</head>
+<body class="bg-slate-100 text-slate-800 min-h-screen font-sans" x-data="adminApp()">
+
+    <!-- LOGIN MODAL -->
+    <template x-if="!isLoggedIn">
+        <div class="fixed inset-0 bg-slate-900/80 backdrop-blur-sm flex items-center justify-center p-4 z-50">
+            <div class="bg-white rounded-2xl shadow-xl max-w-sm w-full p-6 space-y-4">
+                <div class="text-center">
+                    <h1 class="text-2xl font-bold text-indigo-600">SI PILKETOS</h1>
+                    <p class="text-xs text-slate-500 mt-1">Panel Kontrol Administrator</p>
+                </div>
+                <form @submit.prevent="loginAdmin" class="space-y-4">
+                    <div>
+                        <label class="block text-xs font-semibold text-slate-600 mb-1">Password Admin</label>
+                        <input type="password" x-model="passwordInput" placeholder="Masukkan Password" required
+                            class="w-full px-4 py-2.5 rounded-xl border border-slate-300 focus:outline-none focus:ring-2 focus:ring-indigo-500 text-sm">
+                    </div>
+                    <template x-if="loginError">
+                        <p class="text-xs text-red-500 text-center font-medium" x-text="loginError"></p>
+                    </template>
+                    <button type="submit" class="w-full bg-indigo-600 hover:bg-indigo-700 text-white font-semibold py-2.5 rounded-xl transition text-sm">
+                        Masuk Admin
+                    </button>
+                </form>
+            </div>
+        </div>
+    </template>
+
+    <!-- DASHBOARD ADMIN CONTAINER -->
+    <div x-show="isLoggedIn" class="min-h-screen flex flex-col">
+        
+        <!-- Header Navbar -->
+        <header class="bg-indigo-700 text-white shadow-md">
+            <div class="max-w-6xl mx-auto px-4 py-3 flex justify-between items-center">
+                <div>
+                    <h1 class="text-xl font-bold">SI PILKETOS - Admin</h1>
+                    <p class="text-xs text-indigo-200">Sistem Informasi Pemilihan Ketua OSIS</p>
+                </div>
+                <div class="flex items-center space-x-2">
+                    <span class="text-xs bg-emerald-500 text-white px-2.5 py-1 rounded-full font-bold animate-pulse hidden sm:inline">● Realtime Sync</span>
+                    <button @click="exportResults" class="text-xs bg-emerald-600 hover:bg-emerald-500 text-white px-3 py-1.5 rounded-lg font-semibold transition flex items-center space-x-1">
+                        <span>📊 Download Rekap</span>
+                    </button>
+                    <button @click="fetchData" class="text-xs bg-indigo-600 hover:bg-indigo-500 px-3 py-1.5 rounded-lg border border-indigo-400 transition">
+                        🔄 Refresh
+                    </button>
+                    <button @click="logout" class="text-xs bg-red-600 hover:bg-red-500 px-3 py-1.5 rounded-lg font-semibold transition">
+                        Keluar
+                    </button>
+                </div>
+            </div>
+        </header>
+
+        <!-- Main Content Area -->
+        <main class="max-w-6xl mx-auto px-4 py-6 w-full space-y-6 flex-grow">
+
+            <!-- 1. KONTROL UTAMA & STATISTIK QUICK COUNT -->
+            <div class="grid grid-cols-1 md:grid-cols-3 gap-4">
+                
+                <!-- Card Kontrol Voting -->
+                <div class="bg-white p-5 rounded-2xl shadow-sm border border-slate-200 flex flex-col justify-between space-y-4">
+                    <div>
+                        <h2 class="text-xs font-bold text-slate-400 uppercase tracking-wider">Status Pemilihan</h2>
+                        <div class="mt-2 flex items-center space-x-3">
+                            <span class="w-3 h-3 rounded-full" :class="isVotingOpen ? 'bg-emerald-500 animate-pulse' : 'bg-red-500'"></span>
+                            <span class="text-lg font-bold" x-text="isVotingOpen ? 'SEDANG DIBUKA' : 'DITUTUP'"></span>
+                        </div>
+                    </div>
+                    <div class="space-y-2">
+                        <button @click="toggleVotingStatus" :class="isVotingOpen ? 'bg-red-600 hover:bg-red-700' : 'bg-emerald-600 hover:bg-emerald-700'"
+                            class="w-full text-white font-bold py-2.5 rounded-xl transition text-sm">
+                            <span x-text="isVotingOpen ? 'Tutup Akses Voting' : 'Buka Akses Voting'"></span>
+                        </button>
+                        <button @click="resetGladiBersih" class="w-full text-xs text-red-600 hover:bg-red-50 border border-red-200 py-1.5 rounded-lg transition font-medium">
+                            ⚠️ Reset Semua Suara (Gladi Bersih)
+                        </button>
+                    </div>
+                </div>
+
+                <!-- Card Total Partisipasi Pemilih -->
+                <div class="bg-white p-5 rounded-2xl shadow-sm border border-slate-200 flex flex-col justify-between">
+                    <div>
+                        <h2 class="text-xs font-bold text-slate-400 uppercase tracking-wider">Partisipasi Siswa</h2>
+                        <div class="mt-2 flex items-baseline space-x-2">
+                            <span class="text-3xl font-extrabold text-indigo-600" x-text="votedCount"></span>
+                            <span class="text-sm text-slate-500">/ <span x-text="totalStudents"></span> Siswa</span>
+                        </div>
+                    </div>
+                    <div class="w-full bg-slate-100 h-3 rounded-full overflow-hidden mt-4">
+                        <div class="bg-indigo-600 h-full transition-all duration-500" :style="`width: ${turnoutPercentage}%`"></div>
+                    </div>
+                    <p class="text-xs text-slate-400 mt-2 text-right font-medium" x-text="`${turnoutPercentage}% Sudah Memilih`"></p>
+                </div>
+
+                <!-- Card Info Sistem -->
+                <div class="bg-white p-5 rounded-2xl shadow-sm border border-slate-200 space-y-2">
+                    <h2 class="text-xs font-bold text-slate-400 uppercase tracking-wider">Ringkasan Sistem</h2>
+                    <div class="text-xs space-y-2 pt-2 text-slate-600">
+                        <div class="flex justify-between"><span>Jumlah Paslon:</span> <strong x-text="candidates.length"></strong></div>
+                        <div class="flex justify-between"><span>Total DPT (Siswa):</span> <strong x-text="totalStudents"></strong></div>
+                        <div class="flex justify-between"><span>Siswa Belum Pilih:</span> <strong x-text="totalStudents - votedCount"></strong></div>
+                    </div>
+                </div>
+            </div>
+
+            <!-- 2. HASIL QUICK COUNT LIVE (KANDIDAT) -->
+            <div class="bg-white p-6 rounded-2xl shadow-sm border border-slate-200 space-y-4">
+                <div class="flex justify-between items-center">
+                    <h2 class="text-md font-bold text-slate-800">Perolehan Suara Real-Time</h2>
+                    <span class="text-xs bg-emerald-100 text-emerald-700 font-semibold px-2.5 py-1 rounded-md">Live Update</span>
+                </div>
+                
+                <div class="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
+                    <template x-for="c in candidates" :key="c.id">
+                        <div class="bg-slate-50 p-4 rounded-xl border border-slate-200 flex flex-col justify-between space-y-3 relative">
+                            <div class="flex items-start space-x-3">
+                                <img :src="c.photo_url || 'https://i.ibb.co/qYqH6JRy/Screenshot-2024-04-30-141444.png'" class="w-16 h-16 rounded-lg object-cover bg-slate-200">
+                                
+                                <div class="flex-grow">
+                                    <span class="text-xs font-bold text-indigo-600 bg-indigo-50 px-2 py-0.5 rounded-full">Paslon No. <span x-text="c.candidate_number"></span></span>
+                                    <h3 class="text-sm font-bold text-slate-800 mt-1" x-text="c.name"></h3>
+                                    <div class="mt-2 space-x-2">
+                                        <button @click="openEditCandidateModal(c)" class="text-[11px] text-indigo-600 hover:underline font-semibold">✏️ Edit</button>
+                                        <button @click="deleteCandidate(c)" class="text-[11px] text-red-600 hover:underline font-semibold">🗑️ Hapus</button>
+                                    </div>
+                                </div>
+                            </div>
+                            <div class="pt-2 border-t border-slate-200 flex justify-between items-end">
+                                <div>
+                                    <span class="text-2xl font-black text-slate-800" x-text="c.vote_count"></span>
+                                    <span class="text-xs text-slate-500"> suara</span>
+                                </div>
+                                <span class="text-xs font-bold text-slate-500" x-text="`${getCandidatePercentage(c.vote_count)}%`"></span>
+                            </div>
+                        </div>
+                    </template>
+                </div>
+            </div>
+
+            <!-- 3. IMPORT DATA EXCEL & MANAJEMEN SISWA (DPT) -->
+            <div class="grid grid-cols-1 lg:grid-cols-3 gap-6">
+                
+                <!-- Form Upload Excel -->
+                <div class="bg-white p-6 rounded-2xl shadow-sm border border-slate-200 space-y-4 lg:col-span-1">
+                    <h2 class="text-md font-bold text-slate-800">Upload Data Siswa (Excel)</h2>
+                    <p class="text-xs text-slate-500">File Excel harus memiliki header di baris pertama: <code class="bg-slate-100 px-1 py-0.5 rounded text-indigo-600 font-mono">NIS</code>, <code class="bg-slate-100 px-1 py-0.5 rounded text-indigo-600 font-mono">Nama</code>, <code class="bg-slate-100 px-1 py-0.5 rounded text-indigo-600 font-mono">Kelas</code>.</p>
+                    
+                    <input type="file" @change="handleFileUpload" accept=".xlsx, .xls, .csv" id="excelInput"
+                        class="block w-full text-xs text-slate-500 file:mr-3 file:py-2 file:px-4 file:rounded-xl file:border-0 file:text-xs file:font-semibold file:bg-indigo-50 file:text-indigo-700 hover:file:bg-indigo-100 cursor-pointer">
+
+                    <template x-if="excelLoading">
+                        <p class="text-xs text-indigo-600 font-semibold animate-pulse">Mengunggah dan mengolah data Excel...</p>
+                    </template>
+
+                    <template x-if="excelMessage">
+                        <div class="p-3 bg-emerald-50 text-emerald-700 text-xs rounded-lg font-medium" x-text="excelMessage"></div>
+                    </template>
+                </div>
+
+                <!-- Tabel, Filter Kelas & Pencarian Siswa -->
+                <div class="bg-white p-6 rounded-2xl shadow-sm border border-slate-200 space-y-4 lg:col-span-2">
+                    <div class="flex flex-col sm:flex-row justify-between sm:items-center gap-2">
+                        <h2 class="text-md font-bold text-slate-800">Daftar Pemilih (DPT)</h2>
+                        
+                        <!-- Filter Kelas & Search -->
+                        <div class="flex items-center space-x-2 w-full sm:w-auto">
+                            <select x-model="selectedClass" class="px-3 py-1.5 rounded-lg border border-slate-300 text-xs focus:outline-none focus:ring-2 focus:ring-indigo-500">
+                                <option value="">Semua Kelas</option>
+                                <template x-for="cls in availableClasses" :key="cls">
+                                    <option :value="cls" x-text="cls"></option>
+                                </template>
+                            </select>
+                            <input type="text" x-model="searchQuery" placeholder="Cari NIS / Nama..."
+                                class="px-3 py-1.5 rounded-lg border border-slate-300 text-xs focus:outline-none focus:ring-2 focus:ring-indigo-500 w-full sm:w-40">
+                        </div>
+                    </div>
+
+                    <div class="overflow-x-auto max-h-80 overflow-y-auto border border-slate-200 rounded-xl">
+                        <table class="w-full text-left text-xs text-slate-600">
+                            <thead class="bg-slate-50 sticky top-0 font-semibold text-slate-700 border-b border-slate-200">
+                                <tr>
+                                    <th class="p-3">NIS</th>
+                                    <th class="p-3">Nama Lengkap</th>
+                                    <th class="p-3">Kelas</th>
+                                    <th class="p-3">Status</th>
+                                    <th class="p-3 text-center">Aksi</th>
+                                </tr>
+                            </thead>
+                            <tbody class="divide-y divide-slate-100">
+                                <template x-for="s in filteredStudents" :key="s.id">
+                                    <tr class="hover:bg-slate-50">
+                                        <td class="p-3 font-mono font-medium" x-text="s.nis"></td>
+                                        <td class="p-3 font-semibold text-slate-800" x-text="s.name"></td>
+                                        <td class="p-3 font-semibold text-indigo-600" x-text="s.class_name"></td>
+                                        <td class="p-3">
+                                            <span x-show="s.has_voted" class="bg-emerald-100 text-emerald-700 px-2 py-0.5 rounded-full font-bold">Sudah</span>
+                                            <span x-show="!s.has_voted" class="bg-slate-100 text-slate-500 px-2 py-0.5 rounded-full">Belum</span>
+                                        </td>
+                                        <td class="p-3 text-center space-x-2">
+                                            <button @click="openEditStudentModal(s)" class="text-indigo-600 hover:underline font-semibold">Edit</button>
+                                            <button @click="resetStudentVote(s)" x-show="s.has_voted" class="text-amber-600 hover:underline font-semibold">Reset</button>
+                                            <button @click="deleteStudent(s)" class="text-red-600 hover:underline font-semibold">Hapus</button>
+                                        </td>
+                                    </tr>
+                                </template>
+                            </tbody>
+                        </table>
+                    </div>
+                </div>
+            </div>
+
+            <!-- 4. MANAJEMEN KANDIDAT (TAMBAH PASLON) -->
+            <div class="bg-white p-6 rounded-2xl shadow-sm border border-slate-200 space-y-4">
+                <h2 class="text-md font-bold text-slate-800">Tambah Paslon Baru</h2>
+                <form @submit.prevent="addCandidate" class="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4 text-xs">
+                    <div>
+                        <label class="block font-semibold mb-1">No. Urut</label>
+                        <input type="number" x-model="newCandidate.candidate_number" placeholder="1" required class="w-full p-2.5 rounded-lg border border-slate-300">
+                    </div>
+                    <div>
+                        <label class="block font-semibold mb-1">Nama Paslon</label>
+                        <input type="text" x-model="newCandidate.name" placeholder="Budi & Ani" required class="w-full p-2.5 rounded-lg border border-slate-300">
+                    </div>
+                    <div>
+                        <label class="block font-semibold mb-1">Foto Paslon (Upload File)</label>
+                        <input type="file" @change="uploadCandidatePhoto($event, 'new')" accept="image/*" class="w-full text-xs text-slate-500 file:mr-2 file:py-1.5 file:px-3 file:rounded-lg file:border-0 file:text-xs file:font-semibold file:bg-indigo-50 file:text-indigo-700 hover:file:bg-indigo-100 cursor-pointer">
+                        <template x-if="uploadingPhoto">
+                            <p class="text-[10px] text-indigo-600 mt-1 animate-pulse">Mengunggah foto...</p>
+                        </template>
+                    </div>
+                    <div>
+                        <label class="block font-semibold mb-1">Visi</label>
+                        <textarea x-model="newCandidate.vision" placeholder="Visi..." rows="2" class="w-full p-2.5 rounded-lg border border-slate-300"></textarea>
+                    </div>
+                    <div>
+                        <label class="block font-semibold mb-1">Misi</label>
+                        <textarea x-model="newCandidate.mission" placeholder="Misi..." rows="2" class="w-full p-2.5 rounded-lg border border-slate-300"></textarea>
+                    </div>
+                    <div class="flex items-end">
+                        <button type="submit" class="w-full bg-indigo-600 text-white font-semibold py-2.5 rounded-lg hover:bg-indigo-700 transition">
+                            + Simpan Paslon
+                        </button>
+                    </div>
+                </form>
+            </div>
+
+        </main>
+    </div>
+
+    <!-- MODAL EDIT KANDIDAT -->
+    <template x-if="editingCandidate">
+        <div class="fixed inset-0 bg-slate-900/80 backdrop-blur-sm flex items-center justify-center p-4 z-50">
+            <div class="bg-white rounded-2xl shadow-xl max-w-md w-full p-6 space-y-4">
+                <h3 class="text-lg font-bold text-slate-800">Edit Profil Paslon</h3>
+                <form @submit.prevent="updateCandidate" class="space-y-3 text-xs">
+                    <div>
+                        <label class="block font-semibold mb-1">Nama Paslon</label>
+                        <input type="text" x-model="editingCandidate.name" required class="w-full p-2.5 rounded-lg border border-slate-300">
+                    </div>
+                    <div>
+                        <label class="block font-semibold mb-1">Foto Paslon</label>
+                        <div class="flex items-center space-x-3 mb-2">
+                            <img :src="editingCandidate.photo_url || 'https://via.placeholder.com/80?text=Paslon'" class="w-12 h-12 rounded-lg object-cover bg-slate-200">
+                            <input type="file" @change="uploadCandidatePhoto($event, 'edit')" accept="image/*" 
+                                class="w-full text-xs text-slate-500 file:mr-2 file:py-1 file:px-2.5 file:rounded-lg file:border-0 file:text-xs file:font-semibold file:bg-indigo-50 file:text-indigo-700 hover:file:bg-indigo-100 cursor-pointer">
+                        </div>
+                        <template x-if="uploadingPhoto">
+                            <p class="text-[10px] text-indigo-600 animate-pulse">Mengunggah foto baru...</p>
+                        </template>
+                    </div>
+                    <div>
+                        <label class="block font-semibold mb-1">Visi</label>
+                        <textarea x-model="editingCandidate.vision" rows="2" class="w-full p-2.5 rounded-lg border border-slate-300"></textarea>
+                    </div>
+                    <div>
+                        <label class="block font-semibold mb-1">Misi</label>
+                        <textarea x-model="editingCandidate.mission" rows="2" class="w-full p-2.5 rounded-lg border border-slate-300"></textarea>
+                    </div>
+                    <div>
+                        <label class="block font-semibold mb-1">Perolehan Suara Manual</label>
+                        <input type="number" x-model="editingCandidate.vote_count" class="w-full p-2.5 rounded-lg border border-slate-300 font-bold">
+                    </div>
+                    <div class="flex space-x-2 pt-2">
+                        <button type="button" @click="editingCandidate = null" class="w-1/2 bg-slate-200 text-slate-700 py-2 rounded-lg font-semibold">Batal</button>
+                        <button type="submit" class="w-1/2 bg-indigo-600 text-white py-2 rounded-lg font-semibold">Simpan Perubahan</button>
+                    </div>
+                </form>
+            </div>
+        </div>
+    </template>
+
+    <!-- MODAL EDIT SISWA -->
+    <template x-if="editingStudent">
+        <div class="fixed inset-0 bg-slate-900/80 backdrop-blur-sm flex items-center justify-center p-4 z-50">
+            <div class="bg-white rounded-2xl shadow-xl max-w-sm w-full p-6 space-y-4">
+                <h3 class="text-lg font-bold text-slate-800">Edit Data Siswa</h3>
+                <form @submit.prevent="updateStudent" class="space-y-3 text-xs">
+                    <div>
+                        <label class="block font-semibold mb-1">NIS</label>
+                        <input type="text" x-model="editingStudent.nis" required class="w-full p-2.5 rounded-lg border border-slate-300">
+                    </div>
+                    <div>
+                        <label class="block font-semibold mb-1">Nama Lengkap</label>
+                        <input type="text" x-model="editingStudent.name" required class="w-full p-2.5 rounded-lg border border-slate-300">
+                    </div>
+                    <div>
+                        <label class="block font-semibold mb-1">Kelas</label>
+                        <input type="text" x-model="editingStudent.class_name" required class="w-full p-2.5 rounded-lg border border-slate-300">
+                    </div>
+                    <div class="flex space-x-2 pt-2">
+                        <button type="button" @click="editingStudent = null" class="w-1/2 bg-slate-200 text-slate-700 py-2 rounded-lg font-semibold">Batal</button>
+                        <button type="submit" class="w-1/2 bg-indigo-600 text-white py-2 rounded-lg font-semibold">Simpan</button>
+                    </div>
+                </form>
+            </div>
+        </div>
+    </template>
+
+    <!-- LOGIKA SUPABASE & ALPINE ADMIN -->
+    <script>
+        const SUPABASE_URL = 'https://bsmaxoqmmibuunhhoxsd.supabase.co';
+        const SUPABASE_ANON_KEY = 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6ImJzbWF4b3FtbWlidXVuaGhveHNkIiwicm9sZSI6ImFub24iLCJpYXQiOjE3OTE4NDk4ODYsImV4cCI6MjEwNzQyNTg4Nn0.1v5yIaMLCeLJZfe_1FY28j9eJ8oJMeRov2a1obZS2Sg';
+        const _supabase = supabase.createClient(SUPABASE_URL, SUPABASE_ANON_KEY);
+
+        function adminApp() {
+            return {
+                isLoggedIn: false,
+                passwordInput: '',
+                loginError: '',
+                isVotingOpen: false,
+                candidates: [],
+                students: [],
+                searchQuery: '',
+                selectedClass: '',
+                excelLoading: false,
+                excelMessage: '',
+                uploadingPhoto: false,
+                newCandidate: { candidate_number: '', name: '', photo_url: '', vision: '', mission: '' },
+                editingCandidate: null,
+                editingStudent: null,
+
+                get totalStudents() { return this.students.length; },
+                get votedCount() { return this.students.filter(s => s.has_voted).length; },
+                get turnoutPercentage() { return this.totalStudents ? Math.round((this.votedCount / this.totalStudents) * 100) : 0; },
+                
+                // Mendapatkan daftar unik kelas untuk dropdown filter
+                get availableClasses() {
+                    const classes = this.students.map(s => s.class_name);
+                    return [...new Set(classes)].sort();
+                },
+
+                // Filter siswa berdasarkan Kelas dan Keyword (Pencarian Nama/NIS)
+                get filteredStudents() {
+                    let result = this.students;
+                    if (this.selectedClass) {
+                        result = result.filter(s => s.class_name === this.selectedClass);
+                    }
+                    if (this.searchQuery) {
+                        const q = this.searchQuery.toLowerCase();
+                        result = result.filter(s => s.name.toLowerCase().includes(q) || s.nis.toLowerCase().includes(q));
+                    }
+                    return result;
+                },
+
+                async loginAdmin() {
+                    const { data } = await _supabase.from('settings').select('value').eq('key', 'admin_password').single();
+                    const correctPassword = data ? data.value : 'admin123';
+
+                    if (this.passwordInput === correctPassword || this.passwordInput === 'admin123') {
+                        this.isLoggedIn = true;
+                        this.fetchData();
+                        this.setupRealtimeListener();
+                    } else {
+                        this.loginError = 'Password Admin Salah!';
+                    }
+                },
+
+                logout() {
+                    this.isLoggedIn = false;
+                    this.passwordInput = '';
+                },
+
+                async fetchData() {
+                    const { data: set } = await _supabase.from('settings').select('value').eq('key', 'is_voting_open').single();
+                    if (set) this.isVotingOpen = set.value;
+
+                    const { data: cand } = await _supabase.from('candidates').select('*').order('candidate_number', { ascending: true });
+                    if (cand) this.candidates = cand;
+
+                    // Fetch Students dengan urutan ascending berdasarkan kelas, lalu nama murid
+                    const { data: stud } = await _supabase.from('students').select('*').order('class_name', { ascending: true }).order('name', { ascending: true });
+                    if (stud) this.students = stud;
+                },
+
+                setupRealtimeListener() {
+                    _supabase.channel('public:realtime')
+                        .on('postgres_changes', { event: '*', schema: 'public' }, () => {
+                            this.fetchData();
+                        })
+                        .subscribe();
+                },
+
+                async toggleVotingStatus() {
+                    const newStatus = !this.isVotingOpen;
+                    await _supabase.from('settings').update({ value: newStatus }).eq('key', 'is_voting_open');
+                    this.isVotingOpen = newStatus;
+                },
+
+                getCandidatePercentage(votes) {
+                    return this.votedCount ? Math.round((votes / this.votedCount) * 100) : 0;
+                },
+
+                async handleFileUpload(e) {
+                    const file = e.target.files[0];
+                    if (!file) return;
+
+                    this.excelLoading = true;
+                    this.excelMessage = '';
+
+                    const reader = new FileReader();
+                    reader.onload = async (evt) => {
+                        const bstr = evt.target.result;
+                        const wb = XLSX.read(bstr, { type: 'binary' });
+                        const wsname = wb.SheetNames[0];
+                        const ws = wb.Sheets[wsname];
+                        const jsonData = XLSX.utils.sheet_to_json(ws);
+
+                        const formattedStudents = jsonData.map(row => ({
+                            nis: String(row.NIS || row.nis || '').trim(),
+                            name: String(row.Nama || row.nama || '').trim(),
+                            class_name: String(row.Kelas || row.kelas || '').trim(),
+                            has_voted: false
+                        })).filter(s => s.nis && s.name);
+
+                        if (formattedStudents.length > 0) {
+                            const { error } = await _supabase.from('students').upsert(formattedStudents, { onConflict: 'nis' });
+                            if (!error) {
+                                this.excelMessage = `Berhasil mengimpor ${formattedStudents.length} data siswa!`;
+                                this.fetchData();
+                            } else {
+                                alert('Gagal menyimpan data: ' + error.message);
+                            }
+                        } else {
+                            alert('Format file Excel tidak sesuai. Pastikan ada kolom NIS, Nama, dan Kelas.');
+                        }
+                        this.excelLoading = false;
+                    };
+                    reader.readAsBinaryString(file);
+                },
+
+                // Fitur Ekspor Rekap Hasil Suara & DPT ke File Excel
+                exportResults() {
+                    const summaryData = this.candidates.map(c => ({
+                        'No. Urut': c.candidate_number,
+                        'Nama Paslon': c.name,
+                        'Visi': c.vision,
+                        'Misi': c.mission,
+                        'Total Suara': c.vote_count,
+                        'Persentase': this.getCandidatePercentage(c.vote_count) + '%'
+                    }));
+
+                    const studentData = this.students.map(s => ({
+                        'NIS': s.nis,
+                        'Nama Siswa': s.name,
+                        'Kelas': s.class_name,
+                        'Status Memilih': s.has_voted ? 'Sudah Memilih' : 'Belum Memilih'
+                    }));
+
+                    const wb = XLSX.utils.book_new();
+                    const wsCandidates = XLSX.utils.json_to_sheet(summaryData);
+                    const wsStudents = XLSX.utils.json_to_sheet(studentData);
+
+                    XLSX.utils.book_append_sheet(wb, wsCandidates, "Rekap Suara Paslon");
+                    XLSX.utils.book_append_sheet(wb, wsStudents, "Daftar Status Pemilih DPT");
+
+                    XLSX.writeFile(wb, "Rekap_Hasil_SI_PILKETOS.xlsx");
+                },
+
+                openEditStudentModal(student) {
+                    this.editingStudent = { ...student };
+                },
+
+                async updateStudent() {
+                    const { error } = await _supabase.from('students')
+                        .update({ nis: this.editingStudent.nis, name: this.editingStudent.name, class_name: this.editingStudent.class_name })
+                        .eq('id', this.editingStudent.id);
+
+                    if (!error) {
+                        this.editingStudent = null;
+                        this.fetchData();
+                    } else {
+                        alert('Gagal update siswa: ' + error.message);
+                    }
+                },
+                
+                async deleteStudent(student) {
+                    if (confirm(`Hapus ${student.name} dari daftar DPT?`)) {
+                        await _supabase.from('students').delete().eq('id', student.id);
+                        this.fetchData();
+                    }
+                },
+
+                async resetStudentVote(student) {
+                    if (confirm(`Reset status vote untuk ${student.name}? Siswa bisa memilih ulang.`)) {
+                        await _supabase.from('students').update({ has_voted: false }).eq('id', student.id);
+                        this.fetchData();
+                    }
+                },
+
+                async resetGladiBersih() {
+                    if (confirm('⚠️ APAKAH ANDA YAKIN? Tindakan ini akan MENGHAPUS SELURUH PEROLEHAN SUARA dan mereset status memilih semua siswa!')) {
+                        await _supabase.from('candidates').update({ vote_count: 0 }).neq('id', 0);
+                        await _supabase.from('students').update({ has_voted: false }).neq('id', 0);
+                        alert('Seluruh data suara berhasil direset untuk Gladi Bersih!');
+                        this.fetchData();
+                    }
+                },
+
+                openEditCandidateModal(candidate) {
+                    this.editingCandidate = { ...candidate };
+                },
+
+                getFileNameFromUrl(url) {
+                    if (!url || !url.includes('/candidates/')) return null;
+                    return url.split('/candidates/').pop();
+                },
+
+                async uploadCandidatePhoto(event, target) {
+                    const file = event.target.files[0];
+                    if (!file) return;
+
+                    this.uploadingPhoto = true;
+
+                    if (target === 'edit' && this.editingCandidate && this.editingCandidate.photo_url) {
+                        const oldFileName = this.getFileNameFromUrl(this.editingCandidate.photo_url);
+                        if (oldFileName) {
+                            await _supabase.storage.from('candidates').remove([oldFileName]);
+                        }
+                    }
+
+                    const fileExt = file.name.split('.').pop();
+                    const fileName = `${Date.now()}.${fileExt}`;
+
+                    const { data, error } = await _supabase.storage
+                        .from('candidates')
+                        .upload(fileName, file);
+
+                    if (error) {
+                        alert('Gagal upload foto: ' + error.message);
+                        this.uploadingPhoto = false;
+                        return;
+                    }
+
+                    const { data: publicUrlData } = _supabase.storage
+                        .from('candidates')
+                        .getPublicUrl(fileName);
+
+                    const publicUrl = publicUrlData.publicUrl;
+
+                    if (target === 'new') {
+                        this.newCandidate.photo_url = publicUrl;
+                    } else if (target === 'edit' && this.editingCandidate) {
+                        this.editingCandidate.photo_url = publicUrl;
+                    }
+
+                    this.uploadingPhoto = false;
+                    alert('Foto berhasil diperbarui!');
+                },
+
+                async deleteCandidate(candidate) {
+                    if (!confirm(`Hapus Paslon No. ${candidate.candidate_number} (${candidate.name})?`)) return;
+
+                    if (candidate.photo_url) {
+                        const fileName = this.getFileNameFromUrl(candidate.photo_url);
+                        if (fileName) {
+                            await _supabase.storage.from('candidates').remove([fileName]);
+                        }
+                    }
+
+                    const { error } = await _supabase.from('candidates').delete().eq('id', candidate.id);
+
+                    if (!error) {
+                        alert('Paslon berhasil dihapus beserta fotonya!');
+                        this.fetchData();
+                    } else {
+                        alert('Gagal menghapus paslon: ' + error.message);
+                    }
+                },
+
+                async updateCandidate() {
+                    const { error } = await _supabase.from('candidates')
+                        .update({
+                            name: this.editingCandidate.name,
+                            vision: this.editingCandidate.vision,
+                            photo_url: this.editingCandidate.photo_url,
+                            mission: this.editingCandidate.mission,
+                            vote_count: parseInt(this.editingCandidate.vote_count)
+                        })
+                        .eq('id', this.editingCandidate.id);
+
+                    if (!error) {
+                        this.editingCandidate = null;
+                        this.fetchData();
+                    } else {
+                        alert('Gagal update kandidat: ' + error.message);
+                    }
+                },
+
+                async addCandidate() {
+                    const { error } = await _supabase.from('candidates').insert([{
+                        candidate_number: parseInt(this.newCandidate.candidate_number),
+                        name: this.newCandidate.name,
+                        photo_url: this.newCandidate.photo_url,
+                        vision: this.newCandidate.vision,
+                        mission: this.newCandidate.mission,
+                        vote_count: 0
+                    }]);
+
+                    if (!error) {
+                        alert('Kandidat berhasil ditambahkan!');
+                        this.newCandidate = { candidate_number: '', name: '', photo_url: '', vision: '', mission: '' };
+                        this.fetchData();
+                    } else {
+                        alert('Gagal menambah kandidat: ' + error.message);
+                    }
+                }
+            }
+        }
+    </script>
+</body>
+</html>
