@@ -439,12 +439,26 @@
                         const ws = wb.Sheets[wsname];
                         const jsonData = XLSX.utils.sheet_to_json(ws);
 
-                        const formattedStudents = jsonData.map(row => ({
-                            nis: String(row.NIS || row.nis || '').trim(),
-                            name: String(row.Nama || row.nama || '').trim(),
-                            class_name: String(row.Kelas || row.kelas || '').trim(),
-                            has_voted: false
-                        })).filter(s => s.nis && s.name);
+                       // Format data & bersihkan duplikat NIS dalam satu file Excel
+const uniqueMap = new Map();
+
+jsonData.forEach(row => {
+    const nis = String(row.NIS || row.nis || '').trim();
+    const name = String(row.Nama || row.nama || '').trim();
+    const className = String(row.Kelas || row.kelas || '').trim();
+
+    if (nis && name) {
+        // Jika NIS duplikat ditemukan di file, baris terbaru akan menimpa baris sebelumnya
+        uniqueMap.set(nis, {
+            nis: nis,
+            name: name,
+            class_name: className,
+            has_voted: false
+        });
+    }
+});
+
+const formattedStudents = Array.from(uniqueMap.values());
 
                         if (formattedStudents.length > 0) {
                             const { error } = await _supabase.from('students').upsert(formattedStudents, { onConflict: 'nis' });
