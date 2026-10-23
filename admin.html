@@ -141,10 +141,10 @@
                             </div>
                             <div class="pt-2 border-t border-slate-200 flex justify-between items-end">
                                 <div>
-                                    <span class="text-2xl font-black text-slate-800" x-text="c.vote_count"></span>
+                                    <span class="text-2xl font-black text-slate-800" x-text="getCandidateVotes(c.id)"></span>
                                     <span class="text-xs text-slate-500"> suara</span>
                                 </div>
-                                <span class="text-xs font-bold text-slate-500" x-text="`${getCandidatePercentage(c.vote_count)}%`"></span>
+                                <span class="text-xs font-bold text-slate-500" x-text="`${getCandidatePercentage(getCandidateVotes(c.id))}%`"></span>
                             </div>
                         </div>
                     </template>
@@ -290,10 +290,6 @@
                         <label class="block font-semibold mb-1">Misi</label>
                         <textarea x-model="editingCandidate.mission" rows="2" class="w-full p-2.5 rounded-lg border border-slate-300"></textarea>
                     </div>
-                    <div>
-                        <label class="block font-semibold mb-1">Perolehan Suara Manual</label>
-                        <input type="number" x-model="editingCandidate.vote_count" class="w-full p-2.5 rounded-lg border border-slate-300 font-bold">
-                    </div>
                     <div class="flex space-x-2 pt-2">
                         <button type="button" @click="editingCandidate = null" class="w-1/2 bg-slate-200 text-slate-700 py-2 rounded-lg font-semibold">Batal</button>
                         <button type="submit" class="w-1/2 bg-indigo-600 text-white py-2 rounded-lg font-semibold">Simpan Perubahan</button>
@@ -356,6 +352,11 @@
                 get totalStudents() { return this.students.length; },
                 get votedCount() { return this.students.filter(s => s.has_voted).length; },
                 get turnoutPercentage() { return this.totalStudents ? Math.round((this.votedCount / this.totalStudents) * 100) : 0; },
+                
+                // Menghitung suara langsung dari tabel DPT siswa
+                getCandidateVotes(candidateId) {
+                    return this.students.filter(s => s.vote_number === candidateId).length;
+                },
                 
                 // Mendapatkan daftar unik kelas untuk dropdown filter
                 get availableClasses() {
@@ -439,26 +440,27 @@
                         const ws = wb.Sheets[wsname];
                         const jsonData = XLSX.utils.sheet_to_json(ws);
 
-                       // Format data & bersihkan duplikat NIS dalam satu file Excel
-const uniqueMap = new Map();
+                        // Format data & bersihkan duplikat NIS dalam satu file Excel
+                        const uniqueMap = new Map();
 
-jsonData.forEach(row => {
-    const nis = String(row.NIS || row.nis || '').trim();
-    const name = String(row.Nama || row.nama || '').trim();
-    const className = String(row.Kelas || row.kelas || '').trim();
+                        jsonData.forEach(row => {
+                            const nis = String(row.NIS || row.nis || '').trim();
+                            const name = String(row.Nama || row.nama || '').trim();
+                            const className = String(row.Kelas || row.kelas || '').trim();
 
-    if (nis && name) {
-        // Jika NIS duplikat ditemukan di file, baris terbaru akan menimpa baris sebelumnya
-        uniqueMap.set(nis, {
-            nis: nis,
-            name: name,
-            class_name: className,
-            has_voted: false
-        });
-    }
-});
+                            if (nis && name) {
+                                // Jika NIS duplikat ditemukan di file, baris terbaru akan menimpa baris sebelumnya
+                                uniqueMap.set(nis, {
+                                    nis: nis,
+                                    name: name,
+                                    class_name: className,
+                                    has_voted: false,
+                                    vote_number: 0
+                                });
+                            }
+                        });
 
-const formattedStudents = Array.from(uniqueMap.values());
+                        const formattedStudents = Array.from(uniqueMap.values());
 
                         if (formattedStudents.length > 0) {
                             const { error } = await _supabase.from('students').upsert(formattedStudents, { onConflict: 'nis' });
@@ -483,8 +485,8 @@ const formattedStudents = Array.from(uniqueMap.values());
                         'Nama Paslon': c.name,
                         'Visi': c.vision,
                         'Misi': c.mission,
-                        'Total Suara': c.vote_count,
-                        'Persentase': this.getCandidatePercentage(c.vote_count) + '%'
+                        'Total Suara': this.getCandidateVotes(c.id),
+                        'Persentase': this.getCandidatePercentage(this.getCandidateVotes(c.id)) + '%'
                     }));
 
                     const studentData = this.students.map(s => ({
@@ -530,15 +532,14 @@ const formattedStudents = Array.from(uniqueMap.values());
 
                 async resetStudentVote(student) {
                     if (confirm(`Reset status vote untuk ${student.name}? Siswa bisa memilih ulang.`)) {
-                        await _supabase.from('students').update({ has_voted: false }).eq('id', student.id);
+                        await _supabase.from('students').update({ has_voted: false, vote_number: 0 }).eq('id', student.id);
                         this.fetchData();
                     }
                 },
 
                 async resetGladiBersih() {
-                    if (confirm('⚠️ APAKAH ANDA YAKIN? Tindakan ini akan MENGHAPUS SELURUH PEROLEHAN SUARA dan mereset status memilih semua siswa!')) {
-                        await _supabase.from('candidates').update({ vote_count: 0 }).neq('id', 0);
-                        await _supabase.from('students').update({ has_voted: false }).neq('id', 0);
+                    if (confirm('⚠️ APAKAH ANDA YAKIN? Tindakan ini akan mereset status memilih semua siswa!')) {
+                        await _supabase.from('students').update({ has_voted: false, vote_number: 0 }).neq('id', 0);
                         alert('Seluruh data suara berhasil direset untuk Gladi Bersih!');
                         this.fetchData();
                     }
@@ -621,8 +622,7 @@ const formattedStudents = Array.from(uniqueMap.values());
                             name: this.editingCandidate.name,
                             vision: this.editingCandidate.vision,
                             photo_url: this.editingCandidate.photo_url,
-                            mission: this.editingCandidate.mission,
-                            vote_count: parseInt(this.editingCandidate.vote_count)
+                            mission: this.editingCandidate.mission
                         })
                         .eq('id', this.editingCandidate.id);
 
