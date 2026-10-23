@@ -186,31 +186,30 @@
                     this.step = 'voting';
                 },
 
-                // 4. Konfirmasi dan Kirim Suara
+                // 4. Konfirmasi dan Kirim Suara (Single Source of Truth)
                 async confirmVote(candidate) {
                     if (!confirm(`Apakah kamu yakin memilih Paslon No. ${candidate.candidate_number} (${candidate.name})? Pilihan tidak dapat diubah!`)) {
                         return;
                     }
 
-                    // A. Update status siswa jadi sudah memilih (has_voted = true)
-                   const { error: errStudent } = await _supabase
+                    // A. Update status siswa: has_voted jadi true DAN catat ID kandidat di vote_number
+                    const { error: errStudent } = await _supabase
                         .from('students')
-                        .update({ has_voted: true })
+                        .update({ 
+                            has_voted: true, 
+                            vote_number: candidate.id 
+                        })
                         .eq('id', this.student.id);
+
                     if (errStudent) {
                         alert('Terjadi kesalahan koneksi. Silakan coba lagi.');
                         return;
                     }
 
-                    // B. Tambah jumlah vote kandidat (+1)
-                    // B. Tambah jumlah vote kandidat (+1) [KODE BARU - AMAN BARENGAN]
-                    const { error: errCandidate } = await _supabase
-                    .rpc('increment_vote', { candidate_id: candidate.id });
-
-                    // C. Pindah ke halaman sukses
+                    // C. Langsung pindah ke halaman sukses (TIDAK PERLU update tabel kandidat lagi)
                     this.step = 'success';
                 },
-
+                
                 resetSession() {
                     this.nisInput = '';
                     this.student = null;
