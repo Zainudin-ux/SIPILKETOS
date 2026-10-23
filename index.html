@@ -193,20 +193,19 @@
                     }
 
                     // A. Update status siswa jadi sudah memilih (has_voted = true)
-                    // B. Tambah jumlah vote kandidat (+1) [KODE BARU - AMAN BARENGAN]
-                    const { error: errCandidate } = await _supabase
-                    .rpc('increment_vote', { candidate_id: candidate.id });
-
+                   const { error: errStudent } = await _supabase
+                        .from('students')
+                        .update({ has_voted: true })
+                        .eq('id', this.student.id);
                     if (errStudent) {
                         alert('Terjadi kesalahan koneksi. Silakan coba lagi.');
                         return;
                     }
 
                     // B. Tambah jumlah vote kandidat (+1)
+                    // B. Tambah jumlah vote kandidat (+1) [KODE BARU - AMAN BARENGAN]
                     const { error: errCandidate } = await _supabase
-                        .from('candidates')
-                        .update({ vote_count: candidate.vote_count + 1 })
-                        .eq('id', candidate.id);
+                    .rpc('increment_vote', { candidate_id: candidate.id });
 
                     // C. Pindah ke halaman sukses
                     this.step = 'success';
